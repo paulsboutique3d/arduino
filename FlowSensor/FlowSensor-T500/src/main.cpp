@@ -1,6 +1,5 @@
-#include <Arduino.h>
 #include <LiquidCrystal.h>
-#include <AccelStepper.h> // Include the AccelStepper library
+#include <AccelStepper.h>
 
 // Initialize the LCD display
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
@@ -8,7 +7,7 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 // Specify the pins for the indicator LED and flow rate adjustment buttons
 byte statusLed = 13;
 byte incrementButton = 3;
-byte decrementButton = 4; // Add a new button for decrement
+byte decrementButton = 4;
 
 byte sensorInterrupt = 0; // 0 = pin 2; 1 = pin 3
 byte sensorPin = 2;
@@ -28,63 +27,55 @@ unsigned long oldTime;
 
 // Initialize the A4988 stepper motor driver
 AccelStepper stepper(1, 10, 11); // (driver mode, step pin, direction pin)
-int stepsPerRevolution = 200;  // Number of steps per revolution for your stepper motor
+int stepsPerRevolution = 200;
+
+// Set the threshold for turning on the stepper (adjust as needed)
+const float flowThreshold = 10.0;
 
 
 void pulseCounter() {
   pulseCount++;
 }
 
+
 void setup() {
   lcd.begin(16, 2);
+  stepper.setMaxSpeed(1000);
+  stepper.setAcceleration(500);
+  stepper.setSpeed(500);
 
-  // Initialize the A4988 stepper motor driver
-  stepper.setMaxSpeed(1000);    // Set the maximum speed in steps per second
-  stepper.setAcceleration(500); // Set the acceleration in steps per second per second
-  stepper.setSpeed(500);        // Set the initial speed
-
-  // Set up the flow rate adjustment buttons
   pinMode(incrementButton, INPUT_PULLUP);
   pinMode(decrementButton, INPUT_PULLUP);
 
-  // Initialize a serial connection for reporting values to the host
   Serial.begin(38400);
-
-  // Set up the status LED line as an output
   pinMode(statusLed, OUTPUT);
-  digitalWrite(statusLed, HIGH);  // We have an active-low LED attached
-
+  digitalWrite(statusLed, HIGH);
   pinMode(sensorPin, INPUT);
   digitalWrite(sensorPin, HIGH);
 
-  pulseCount        = 0;
-  flowRate          = 0.0;
-  flowMilliLitres   = 0;
+  pulseCount = 0;
+  flowRate = 0.0;
+  flowMilliLitres = 0;
   totalMilliLitresA = 0;
   totalMilliLitresB = 0;
-  oldTime           = 0;
+  oldTime = 0;
 
-  // The Hall-effect sensor is connected to pin 2 which uses interrupt 0.
-  // Configured to trigger on a FALLING state change (transition from HIGH
-  // state to LOW state)
   attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
 }
 
 void loop() {
   if (digitalRead(incrementButton) == LOW) {
-    calibrationFactor += 0.1; // Adjust the increment as needed
+    calibrationFactor += 0.1;
   }
 
   if (digitalRead(decrementButton) == LOW) {
-    calibrationFactor -= 0.1; // Adjust the decrement as needed
+    calibrationFactor -= 0.1;
   }
 
   if ((millis() - oldTime) > 1000) {
     detachInterrupt(sensorInterrupt);
-
     flowRate = ((1000.0 / (millis() - oldTime)) * pulseCount) / calibrationFactor;
     oldTime = millis();
-
     flowMilliLitres = (flowRate / 60) * 1000;
     totalMilliLitresA += flowMilliLitres;
     totalMilliLitresB += flowMilliLitres;
@@ -122,15 +113,17 @@ void loop() {
     lcd.print("L");
 
     pulseCount = 0;
-
     attachInterrupt(sensorInterrupt, pulseCounter, FALLING);
-  }
 
-  if (flowRate > 5.0) {
-    // Rotate the stepper motor a specific number of steps
-    stepper.move(stepsPerRevolution / 2); // Half a revolution in this example
-    stepper.runToPosition(); // Move the motor
+    if (flowRate > flowThreshold) {
+      // Flow rate exceeds the threshold, decrease the flow by turning the stepper motor
+      stepper.move(-100); // Adjust the number of steps as needed
+      stepper.runToPosition();
+    } else if (flowRate < -flowThreshold) {
+      // Flow rate is below the negative threshold, increase the flow by turning the stepper motor
+      stepper.move(100); // Adjust the number of steps as needed
+      stepper.runToPosition();
+    }
   }
 }
-
 
